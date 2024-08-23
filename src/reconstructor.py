@@ -21,9 +21,9 @@ class Reconstructor(nn.Module):
 
         self.tree = GateTree(block_sizes)
 
-    def forward(self, pos_enc) -> torch.Tensor:
+    def forward(self, pos_enc: torch.Tensor) -> torch.Tensor:
 
-        x = self.tree(pos_enc)
+        x = self.tree.forward(pos_enc)
 
         return x.permute(2, 0, 1)
 
@@ -33,13 +33,13 @@ class Reconstructor(nn.Module):
 
 
 class GateTree(nn.Module):
-    def __init__(self, block_sizes):
+    def __init__(self, block_sizes: list[int]):
         super().__init__()
         self.blocks: list[GateBlock] = nn.Sequential()
         for dim_in, dim_out in zip(block_sizes[:-1], block_sizes[1:]):
             self.blocks.append(GateBlock(dim_in, dim_out))
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.blocks(x)
         return x
 
@@ -50,7 +50,8 @@ class GateTree(nn.Module):
 class GateBlock(nn.Module):
     def __init__(self, dim_in, dim_out):
         super().__init__()
-        self.
+        self.masks = nn.Parameter(torch.rand(dim_out, dim_in) > 0.5)
+        self.invert = nn.Parameter(torch.rand(dim_out) > 0.5)
     def forward(self, x):
         return x
     def mutate(self, mutation_rate):
