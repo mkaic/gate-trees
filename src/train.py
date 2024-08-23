@@ -7,8 +7,6 @@ from torchvision.io import write_jpeg
 from torchvision.transforms.functional import to_tensor
 from tqdm import tqdm
 from .reconstructor import *
-import kornia.color as kc
-import torch.nn as nn
 
 parser = ArgumentParser()
 parser.add_argument("-g", "--gpu", type=int, default=0)
