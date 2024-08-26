@@ -25,30 +25,94 @@ class Block(nn.Module):
         self.thresholds = GradTensor(torch.randint(0, self.dim_in, (self.dim_out,)))
         self.masks = GradTensor(torch.rand(self.dim_in, self.dim_out) < 0.5)
 
-        self.cache = {}
+        self.input_cache = None
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        self.cache["input"] = x
 
         x = x.unsqueeze(-1).expand(-1, self.dim_in, self.dim_out)
+        self.input_cache = x
 
         x_xnor = self.masks.tensor.logical_xor(x).logical_not()
-        self.cache["xnor"] = x_xnor
 
         sums = x_xnor.sum(dim=1)
-        self.cache["sums"] = sums
 
         x = sums > self.thresholds.tensor
-        self.cache["output"] = x
 
         return x
-    
-    def backward(self, error: torch.Tensor) -> torch.Tensor:
-        
+
+    def backward(self, output_grad: torch.Tensor) -> torch.Tensor:
+
+        # first, let's think about the gradient with respect to the threshold
+        # if error is negative, then the threshold should be lowered (output was 0 when it should be 1)
+        # grad = -1
+        # if error is positive, then the threshold should be raised (output was 1 when it should be 0)
+        # grad = 1
+        # if error is zero, then no change is needed. grad = 0.
+
+        # error has shape B x dim_out
+        # thresholds has shape dim_out
+        # cache[sums] has shape B x dim_out
+        # cache[xnor] has shape B x dim_in x dim_out
+        # cache[input] has shape B x dim_in
+
+        B = output_grad.shape[0]
+
+        self.thresholds.grad = -output_grad  # .float().mean(dim=0)
+
+        # if a threshold grad is -1, that means we want 0s to flip to 1s in the activations
+        # thus, bit-flip probability is not(activations)
+        # if a threshold grad is +1, we want 1s to flip to 0s in the activations
+        # thus, bit-flip probability is activations
+        # if a threshold grad is zero, we want no bit flips to occur in the activations
+        # thus, bit-flip probability is zeros.
+
+        # because a bitflip in the mask always results in a bitflip in the activations,
+        # the gradient of the masks is equivalent ot the gradient of the activations in this
+        # case, I think.
+        #
+        # And the grad/error of the *input* is the same again! Because a bitflip in the
+        # input results in a bitflip in the activations, too. Only this time, we assign a ternary
+        # {-1, 0, 1} grad because this error is used to adjsut the thresholds in the next layer back. The
+        # direction of the bitflip matters.
+
+        self.masks.grad = torch.full((B, self.dim_in, self.dim_out), False)
+        self.masks.grad = torch.where(
+            self.thresholds.grad.unsqueeze(1) < 0.001,
+            self.masks.tensor.logical_not(),
+            self.masks.grad,
+        )
+        self.masks.grad = torch.where(
+            self.thresholds.grad.unsqueeze(1) > 0.001,
+            self.masks.tensor,
+            self.masks.grad,
+        )
+
+        input_grad = torch.zeros(self.input_cache.shape, dtype=torch.int8)
+        input_grad = torch.where(
+            self.input_cache.logical_and(self.masks.grad), 1, input_grad
+        )
+        input_grad = torch.where(
+            self.input_cache.logical_not().logical_and(self.masks.grad), -1, input_grad
+        )
+
+        self.thresholds.grad = self.thresholds.grad.float().mean(dim=0)  # dim_out
+        self.masks.grad = self.masks.grad.float().mean(dim=0)  # dim_in x dim_out
+
+        input_grad = input_grad.float().mean(dim=-1)  # B x dim_in
+
+        return input_grad
+
+    def parameters_iterator(self):
+        return {"masks": self.masks, "thresholds": self.thresholds}
+
+    def clamp(self):
+        self.thresholds.tensor.clamp_(0, self.dim_in - 1)
 
 
 class Model(nn.Module):
-    def __init__(self, shape: tuple[int], hidden_dim: int, num_blocks: int, device: torch.device):
+    def __init__(
+        self, shape: tuple[int], hidden_dim: int, num_blocks: int, device: torch.device
+    ):
         super().__init__()
 
         self.pos_enc = get_binary_position_encoding(shape, device)
@@ -79,8 +143,20 @@ class Model(nn.Module):
         return x, error
 
     def backward(self, error: torch.Tensor):
-        
+
         error = error.permute(1, 2, 0)
 
         for block in reversed(self.blocks):
             error = block.backward(error)
+
+    def parameters_iterator(self):
+        params = {}
+        for i, block in enumerate(self.blocks):
+            for name, tensor in block.parameters_iterator().items():
+                params[f"block_{i}_{name}"] = tensor
+
+        return params
+
+    def clamp(self):
+        for block in self.blocks:
+            block.clamp()
