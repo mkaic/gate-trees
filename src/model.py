@@ -49,55 +49,23 @@ class Block(nn.Module):
 
         device = output_grad.device
 
-        # first, let's think about the gradient with respect to the threshold
-        # if error is negative, then the threshold should be lowered (output was 0 when it should be 1)
-        # grad = -1
-        # if error is positive, then the threshold should be raised (output was 1 when it should be 0)
-        # grad = 1
-        # if error is zero, then no change is needed. grad = 0.
-
         output_grad = output_grad.view(
             -1, self.dim_out
         )  # H x W x dim_out -> (H * W) x dim_out
         B = output_grad.shape[0]
 
-        # error has shape B x dim_out
-        # thresholds has shape dim_out
-        # cache[sums] has shape B x dim_out
-        # cache[xnor] has shape B x dim_in x dim_out
-        # cache[input] has shape B x dim_in
-
         self.thresholds.grad = -output_grad  # .float().mean(dim=0)
-
-        # if a threshold grad is -1, that means we want 0s to flip to 1s in the activations
-        # thus, bit-flip probability is not(activations)
-        # if a threshold grad is +1, we want 1s to flip to 0s in the activations
-        # thus, bit-flip probability is activations
-        # if a threshold grad is zero, we want no bit flips to occur in the activations
-        # thus, bit-flip probability is zeros.
-
-        # because a bitflip in the mask always results in a bitflip in the activations,
-        # the gradient of the masks is equivalent ot the gradient of the activations in this
-        # case, I think.
-        #
-        # And the grad/error of the *input* is the same again! Because a bitflip in the
-        # input results in a bitflip in the activations, too. Only this time, we assign a ternary
-        # {-1, 0, 1} grad because this error is used to adjsut the thresholds in the next layer back. The
-        # direction of the bitflip matters.
-
-        self.masks.grad = torch.full(
-            (B, self.dim_in, self.dim_out), False, device=device
-        )
 
         self.masks.grad = torch.where(
             self.thresholds.grad.unsqueeze(1) < 0,
-            self.masks.tensor.logical_not(),
-            self.masks.grad,
+            self.masks.tensor.logical_not().float()
+            * self.thresholds.grad.unsqueeze(1).abs(),
+            0.0,
         )
         self.masks.grad = torch.where(
             self.thresholds.grad.unsqueeze(1) > 0,
-            self.masks.tensor,
-            self.masks.grad,
+            self.masks.tensor.float() * self.thresholds.grad.unsqueeze(1).abs(),
+            0.0,
         )
 
         input_grad = signed_bit_error(self.input_cache, self.masks.grad)

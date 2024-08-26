@@ -19,11 +19,11 @@ gpu = parser.parse_args().gpu
 device = torch.device(f"cuda:{gpu}" if torch.cuda.is_available() else "cpu")
 dtype = torch.bfloat16
 
-hidden_dim = 128
+hidden_dim = 64
 num_blocks = 4
 
 iterations = 250_000
-lr = 0.01
+lr = 0.1
 save = False
 
 target_image_path = Path("monalisa.jpg")
@@ -64,6 +64,7 @@ with torch.no_grad():
         output, pixel_mae = reconstructor.forward(image)
         reconstructor.backward()
         optimizer.step()
+        reconstructor.clamp()
 
         mae_deque.append(pixel_mae)
 
