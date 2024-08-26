@@ -1,6 +1,6 @@
 
 # The idea
-What if I make a random forest of binary gates and use an evolutionary algorithm to try to make it implicitly represent an image?
+What if I used stochastic gradient updates on an XNOR+bitcount binary neural network and trained it to implicitly represent an image?
 
 
 # Requirements

@@ -42,6 +42,9 @@ class Block(nn.Module):
         self.cache["output"] = x
 
         return x
+    
+    def backward(self, error: torch.Tensor) -> torch.Tensor:
+        
 
 
 class Model(nn.Module):
@@ -76,4 +79,8 @@ class Model(nn.Module):
         return x, error
 
     def backward(self, error: torch.Tensor):
-        pass
+        
+        error = error.permute(1, 2, 0)
+
+        for block in reversed(self.blocks):
+            error = block.backward(error)
