@@ -1,5 +1,6 @@
-import torch
 import math
+
+import torch
 from icecream import ic
 
 
@@ -19,7 +20,7 @@ def bits_to_int(bits: torch.Tensor) -> torch.Tensor:
     return (bits * scales).sum(dim=-1)
 
 
-def get_binary_position_encoding(shape, device):
+def get_binary_position_encoding(shape, device) -> torch.Tensor:
 
     longest_side = max(shape)
     num_frequencies = math.ceil(math.log2(longest_side))

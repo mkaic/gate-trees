@@ -1,14 +1,15 @@
+import shutil
 from argparse import ArgumentParser
+from collections import deque
 from pathlib import Path
 
 import torch
+import torchvision.transforms.functional as TF
 from PIL import Image
 from torchvision.io import write_jpeg
-import torchvision.transforms.functional as TF
 from tqdm import tqdm
-from .reconstructor import *
 
-from collections import deque
+from .reconstructor import *
 
 parser = ArgumentParser()
 parser.add_argument("-g", "--gpu", type=int, default=0)
@@ -23,90 +24,58 @@ iterations = 250_000
 lr = 0.01
 save = False
 
+target_image_path = Path("monalisa.jpg")
+shutil.copy(target_image_path, "recon/original.jpg")
+image = Image.open(target_image_path).convert("RGB")
+
 images_path = Path("recon/images")
 images_path.mkdir(exist_ok=True, parents=True)
 weights_path = Path("recon/weights")
 weights_path.mkdir(exist_ok=True, parents=True)
 
-# image_rgb = Image.open("jwst_cliffs.png").convert("RGB")
-# image_rgb = Image.open("branos.jpg").convert("RGB")
-image_rgb = Image.open("monalisa.jpg").convert("RGB")
-# image_rgb = Image.open("minion.jpg").convert("RGB")
-# image_rgb = Image.open("/workspace/projects/noah+brytan.png").convert("RGB")
 
-image_rgb = TF.to_tensor(image_rgb).to(device)
-image_rgb = TF.resize(image_rgb, 256)
-image_rgb: torch.Tensor = (image_rgb * 255).to(torch.uint8)
+image = TF.to_tensor(image).to(device)
+image = TF.resize(image, 256)
+image: torch.Tensor = (image * 255).to(torch.uint8)
 
 write_jpeg(
-    image_rgb.cpu(),
-    "recon/original.jpg",
+    image.cpu(),
     quality=100,
 )
 
-c, h, w = image_rgb.shape
-
 reconstructor = Reconstructor(
-    shape=(h, w),
+    image,
     hidden_dim=hidden_dim,
     num_blocks=num_blocks,
     device=device,
 ).to(device, dtype)
 
-reconstructor = torch.compile(reconstructor)
-
-# print(reconstructor)
+reconstructor: Reconstructor = torch.compile(reconstructor)
 
 num_params = sum([p.numel() for p in reconstructor.parameters()])
-
 print(f"{num_params:,} bits | {num_params / 8 / 1024:.2f} KiB")
 
 pbar = tqdm(range(iterations + 1))
 
-accepted_mutations = deque(maxlen=1000)
-improved_mutations = deque(maxlen=1000)
-
-acceptance_rate = 1.0
-improvement_rate = 1.0
-
-best_output = None
-
+mae_deque = deque(maxlen=100)
 with torch.no_grad():
-    lowest_error = float("inf")
     for i in pbar:
 
-        reconstructor.stage_mutation()
+        output, error = reconstructor.forward(image)
 
-        output = reconstructor.forward()
-        error = torch.mean(torch.abs((output - image_rgb).float()))
+        mae = torch.mean(torch.abs(error.float())).item()
 
-        if error <= lowest_error:
+        mae_deque.append(mae)
 
-            reconstructor.accept_mutation()
-            accepted_mutations.append(1)
-
-            pbar.set_description(
-                f"MAE: {lowest_error:.3f} | Acceptance: {acceptance_rate:.4f} | Improvement: {improvement_rate:.4f}"
-            )
-
-            if error < lowest_error:
-                improved_mutations.append(1)
-                lowest_error = error
-                best_output = output.clone()
-
-        else:
-            reconstructor.revert_mutation()
-            accepted_mutations.append(0)
-            improved_mutations.append(0)
-
-        acceptance_rate = sum(accepted_mutations) / len(accepted_mutations)
-        improvement_rate = sum(improved_mutations) / len(improved_mutations)
+        pbar.set_description(
+            f"MAE (1): {mae:.4f} | MAE (100): {sum(mae_deque) / len(mae_deque):.4f}"
+        )
 
         if i % 1000 == 0:
-            to_save = best_output.cpu().to(torch.uint8)
+            to_save = output.cpu().to(torch.uint8)
             write_jpeg(
                 to_save,
-                f"recon/images/{i:04d}.jpg",
+                f"recon/images/{i:06d}.jpg",
                 quality=100,
             )
             write_jpeg(
