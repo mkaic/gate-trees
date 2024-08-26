@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 from icecream import ic
 
-from .utils import *
+from .utils import bits_to_int, get_binary_position_encoding
 
 
 class GradTensor:
@@ -17,10 +17,11 @@ class GradTensor:
 
 
 class Block(nn.Module):
-    def __init__(self, dim_in, dim_out):
+    def __init__(self, dim_in: int, dim_out: int):
         super().__init__()
         self.dim_in = dim_in
         self.dim_out = dim_out
+
         self.thresholds = GradTensor(torch.randint(0, self.dim_in, (self.dim_out,)))
         self.masks = GradTensor(torch.rand(self.dim_in, self.dim_out) < 0.5)
 
@@ -42,13 +43,9 @@ class Block(nn.Module):
 
         return x
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
 
-        return x
-
-
-class Reconstructor(nn.Module):
-    def __init__(self, shape, hidden_dim, num_blocks, device):
+class Model(nn.Module):
+    def __init__(self, shape: tuple[int], hidden_dim: int, num_blocks: int, device: torch.device):
         super().__init__()
 
         self.pos_enc = get_binary_position_encoding(shape, device)

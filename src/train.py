@@ -9,7 +9,7 @@ from PIL import Image
 from torchvision.io import write_jpeg
 from tqdm import tqdm
 
-from .reconstructor import *
+from .model import Model
 
 parser = ArgumentParser()
 parser.add_argument("-g", "--gpu", type=int, default=0)
@@ -43,14 +43,14 @@ write_jpeg(
     quality=100,
 )
 
-reconstructor = Reconstructor(
+reconstructor = Model(
     image,
     hidden_dim=hidden_dim,
     num_blocks=num_blocks,
     device=device,
 ).to(device, dtype)
 
-reconstructor: Reconstructor = torch.compile(reconstructor)
+reconstructor: Model = torch.compile(reconstructor)
 
 num_params = sum([p.numel() for p in reconstructor.parameters()])
 print(f"{num_params:,} bits | {num_params / 8 / 1024:.2f} KiB")
