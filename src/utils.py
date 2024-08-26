@@ -38,3 +38,11 @@ def get_binary_position_encoding(shape, device) -> torch.Tensor:
     positions = positions.view(*shape, -1)
 
     return positions
+
+
+def signed_bit_error(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+
+    result = torch.where(a.logical_and(b), 1, 0)
+    result = torch.where(a.logical_not().logical_and(b), -1, 0)
+
+    return result
