@@ -23,7 +23,7 @@ hidden_dim = 64
 num_blocks = 4
 
 iterations = 250_000
-lr = 0.1
+lr = 0.01
 save = False
 
 target_image_path = Path("monalisa.jpg")
@@ -44,7 +44,8 @@ reconstructor = Model(
     hidden_dim=hidden_dim,
     num_blocks=num_blocks,
     device=device,
-).to(device)
+)
+reconstructor.to(device)
 
 # reconstructor: Model = torch.compile(reconstructor)
 

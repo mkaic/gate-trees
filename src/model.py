@@ -15,10 +15,9 @@ class GradTensor:
         self.tensor = tensor
         self.grad = grad if grad is not None else torch.empty_like(tensor)
 
-    def to(self, device: torch.device) -> "GradTensor":
+    def to(self, device: torch.device):
         self.tensor = self.tensor.to(device)
         self.grad = self.grad.to(device)
-        return self
 
 
 class Block(nn.Module):
@@ -31,15 +30,16 @@ class Block(nn.Module):
         self.masks = GradTensor(torch.rand(self.dim_in, self.dim_out) < 0.5)
 
         self.input_cache = None
+        self.sums_cache = None
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
 
         x = x.unsqueeze(-1).expand(-1, self.dim_in, self.dim_out)
         self.input_cache = x
-
         x_xnor = self.masks.tensor.logical_xor(x).logical_not()
 
         sums = x_xnor.sum(dim=1)
+        self.sums_cache = sums
 
         x = sums > self.thresholds.tensor
 
@@ -47,14 +47,14 @@ class Block(nn.Module):
 
     def backward(self, output_grad: torch.Tensor) -> torch.Tensor:
 
-        device = output_grad.device
-
         output_grad = output_grad.view(
             -1, self.dim_out
         )  # H x W x dim_out -> (H * W) x dim_out
-        B = output_grad.shape[0]
 
         self.thresholds.grad = -output_grad  # .float().mean(dim=0)
+        self.thresholds.grad = (
+            self.thresholds.tensor - self.sums_cache
+        ).abs() * self.thresholds.grad
 
         self.masks.grad = torch.where(
             self.thresholds.grad.unsqueeze(1) < 0,
@@ -83,10 +83,9 @@ class Block(nn.Module):
     def clamp(self):
         self.thresholds.tensor.clamp_(0, self.dim_in - 1)
 
-    def to(self, device: torch.device) -> "Block":
-        self.masks = self.masks.to(device)
-        self.thresholds = self.thresholds.to(device)
-        return self
+    def to(self, device: torch.device):
+        self.masks.to(device)
+        self.thresholds.to(device)
 
 
 class Model(nn.Module):
@@ -150,7 +149,7 @@ class Model(nn.Module):
         for block in self.blocks:
             block.clamp()
 
-    def to(self, device: torch.device) -> "Model":
-        self.pos_enc = self.pos_enc.to(device)
-        self.blocks = [block.to(device) for block in self.blocks]
-        return self
+    def to(self, device: torch.device):
+        self.pos_enc.to(device)
+        for block in self.blocks:
+            block.to(device)
